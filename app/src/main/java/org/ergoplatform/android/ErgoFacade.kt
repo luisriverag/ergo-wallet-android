@@ -153,8 +153,8 @@ fun sendErgoTx(
             "",
             explorerApiAddress
         )
-        return ergoClient.execute { ctx: BlockchainContext ->
-            val prover = ctx.newProverBuilder()
+        val prover = ergoClient.execute { ctx: BlockchainContext ->
+            return@execute ctx.newProverBuilder()
                 .withMnemonic(
                     SecretString.create(mnemonic),
                     SecretString.create(mnemonicPass)
@@ -162,17 +162,20 @@ fun sendErgoTx(
                 .withEip3Secret(derivedKeyIndex)
                 .build()
 
-            val contract: ErgoContract = ErgoTreeContract(recipient.ergoAddress.script())
-            val signed = BoxOperations.putToContractTx(
-                ctx, prover, true,
-                contract, amountToSend, tokensToSend
-            )
-            ctx.sendTransaction(signed)
-
-            val txId = signed.id
-
-            return@execute TransactionResult(txId.isNotEmpty(), txId)
         }
+
+        val serializedErgoTx = prepareSerializedErgoTx(
+            recipient,
+            amountToSend,
+            tokensToSend,
+            prover.eip3Addresses,
+            nodeApiAddress,
+            explorerApiAddress
+        )
+        val signedTx = signSerializedErgoTx(serializedErgoTx.serializedTx!!, mnemonic, mnemonicPass, derivedKeyIndex)
+
+        return sendSignedErgoTx(signedTx.serializedTx!!, nodeApiAddress, explorerApiAddress)
+
     } catch (t: Throwable) {
         Log.e("Send", "Error creating transaction", t)
         return TransactionResult(false, errorMsg = t.message)
@@ -240,6 +243,7 @@ fun signSerializedErgoTx(
                 .withEip3Secret(derivedKeyIndex)
                 .build()
             val reducedTx = ctx.parseReducedTransaction(serializedTx)
+            val outputCandidates = reducedTx.tx.unsignedTx().outputCandidates()
             return@execute prover.signReduced(reducedTx, ERG_BASE_COST).toBytes()
         }
         return SerializationResult(true, signedTxSerialized)
